@@ -35,9 +35,17 @@ class RTHEStrategy(TradingStrategy):
                  tsl_offset: float = 5.0,
                  hedge_size_ratio: float = 0.5,
                  min_bricks_for_trend: int = 2,
-                 max_risk_per_trade: float = 0.02):
+                 max_risk_per_trade: float = 0.02,
+                 hedge_logic: str = "single_brick",
+                 hedge_brick_threshold: int = 2,
+                 hedge_price_confirmation: bool = True,
+                 hedge_trend_strength: bool = False,
+                 enable_counter_trend: bool = False,
+                 ma_20_period: int = 20,
+                 ma_50_period: int = 50,
+                 ma_200_period: int = 200):
         """
-        Initialize R.T.H.E. strategy
+        Initialize R.T.H.E. strategy with moving averages
         
         Args:
             brick_size: Size of Renko bricks
@@ -45,6 +53,14 @@ class RTHEStrategy(TradingStrategy):
             hedge_size_ratio: Ratio of hedge position size to core position
             min_bricks_for_trend: Minimum consecutive bricks for trend confirmation
             max_risk_per_trade: Maximum risk per trade as fraction of capital
+            hedge_logic: Hedge confirmation method ('single_brick', 'multiple_bricks', 'price_level', 'trend_strength', 'combined')
+            hedge_brick_threshold: Number of consecutive reversal bricks required for hedge
+            hedge_price_confirmation: Whether to require price level confirmation
+            hedge_trend_strength: Whether to require trend strength confirmation
+            enable_counter_trend: Whether to allow counter-trend entries
+            ma_20_period: Period for 20-day SMA
+            ma_50_period: Period for 50-day SMA
+            ma_200_period: Period for 200-day SMA
         """
         super().__init__("RTHE")
         
@@ -54,6 +70,25 @@ class RTHEStrategy(TradingStrategy):
         self.hedge_size_ratio = hedge_size_ratio
         self.min_bricks_for_trend = min_bricks_for_trend
         self.max_risk_per_trade = max_risk_per_trade
+        
+        # Hedge logic parameters
+        self.hedge_logic = hedge_logic
+        self.hedge_brick_threshold = hedge_brick_threshold
+        self.hedge_price_confirmation = hedge_price_confirmation
+        self.hedge_trend_strength = hedge_trend_strength
+        
+        # Moving average parameters
+        self.enable_counter_trend = enable_counter_trend
+        self.ma_20_period = ma_20_period
+        self.ma_50_period = ma_50_period
+        self.ma_200_period = ma_200_period
+        
+        # Moving average values (will be calculated during execution)
+        self.ma_20 = 0.0
+        self.ma_50 = 0.0
+        self.ma_200 = 0.0
+        self.ma_20_prev = 0.0
+        self.ma_50_prev = 0.0
         
         # Position tracking
         self.core_position = 0  # 0: no position, 1: long, -1: short
@@ -72,6 +107,10 @@ class RTHEStrategy(TradingStrategy):
         self.last_brick_direction = 0
         self.last_brick_high = 0.0
         self.last_brick_low = 0.0
+        
+        # Track previous brick levels for price confirmation
+        self.previous_brick_high = 0.0
+        self.previous_brick_low = 0.0
         
         # Performance tracking
         self.core_trades = []
@@ -95,17 +134,88 @@ class RTHEStrategy(TradingStrategy):
         self.last_brick_direction = 0
         self.last_brick_high = 0.0
         self.last_brick_low = 0.0
+        self.previous_brick_high = 0.0
+        self.previous_brick_low = 0.0
         self.core_trades = []
         self.hedge_trades = []
         self.total_trades = 0
         self.hedge_activations = 0
         self.tsl_hits = 0
         self.trend_continuations = 0
+        
+        # Reset moving averages
+        self.ma_20 = 0.0
+        self.ma_50 = 0.0
+        self.ma_200 = 0.0
+        self.ma_20_prev = 0.0
+        self.ma_50_prev = 0.0
+    
+    def calculate_moving_averages(self, renko_data: pd.DataFrame, index: int):
+        """Calculate moving averages using Renko close series only."""
+        if index < max(self.ma_200_period, self.ma_50_period, self.ma_20_period):
+            return False
+        
+        self.ma_20_prev = self.ma_20
+        self.ma_50_prev = self.ma_50
+        
+        close_prices = renko_data['close'].values
+        if index >= self.ma_20_period:
+            self.ma_20 = np.mean(close_prices[index - self.ma_20_period + 1:index + 1])
+        if index >= self.ma_50_period:
+            self.ma_50 = np.mean(close_prices[index - self.ma_50_period + 1:index + 1])
+        if index >= self.ma_200_period:
+            self.ma_200 = np.mean(close_prices[index - self.ma_200_period + 1:index + 1])
+        return True
+    
+    def check_ma_bullish_crossover(self) -> bool:
+        """Check if 20 and 50 SMA have bullish crossover"""
+        if self.ma_20_prev == 0 or self.ma_50_prev == 0:
+            return False
+        
+        # Check for bullish crossover: 20 SMA crosses above 50 SMA
+        crossover = (self.ma_20_prev <= self.ma_50_prev and self.ma_20 > self.ma_50)
+        
+        # Check if both MAs are upsloping
+        upsloping = (self.ma_20 > self.ma_20_prev and self.ma_50 > self.ma_50_prev)
+        
+        return crossover and upsloping
+    
+    def check_ma_bearish_crossover(self) -> bool:
+        """Check if 20 and 50 SMA have bearish crossover"""
+        if self.ma_20_prev == 0 or self.ma_50_prev == 0:
+            return False
+        
+        # Check for bearish crossover: 20 SMA crosses below 50 SMA
+        crossover = (self.ma_20_prev >= self.ma_50_prev and self.ma_20 < self.ma_50)
+        
+        # Check if both MAs are downsloping
+        downsloping = (self.ma_20 < self.ma_20_prev and self.ma_50 < self.ma_50_prev)
+        
+        return crossover and downsloping
+    
+    def check_ma_trend_alignment(self, direction: int) -> bool:
+        """Check if moving averages align with trade direction"""
+        if direction == 1:  # Long
+            # Price above 20 SMA, 20 SMA above 50 SMA, 50 SMA above 200 SMA
+            current_price = self.last_brick_high  # Use current brick high for long entries
+            return (current_price > self.ma_20 and 
+                   self.ma_20 > self.ma_50 and 
+                   self.ma_50 > self.ma_200)
+        elif direction == -1:  # Short
+            # Price below 20 SMA, 20 SMA below 50 SMA, 50 SMA below 200 SMA
+            current_price = self.last_brick_low  # Use current brick low for short entries
+            return (current_price < self.ma_20 and 
+                   self.ma_20 < self.ma_50 and 
+                   self.ma_50 < self.ma_200)
+        return False
     
     def execute_trade(self, data: pd.DataFrame, index: int):
-        """Execute R.T.H.E. trading logic for current brick"""
-        if index < 1:  # Need at least 2 bricks for analysis
+        """Execute R.T.H.E. trading logic for current brick. All MAs are calculated on Renko close series."""
+        if index < 1:
             return
+        
+        # Calculate moving averages on Renko close
+        self.calculate_moving_averages(data, index)
         
         current_brick = data.iloc[index]
         previous_brick = data.iloc[index - 1]
@@ -129,6 +239,10 @@ class RTHEStrategy(TradingStrategy):
         """Update brick direction tracking"""
         current_direction = current_brick['direction']
         
+        # Store previous levels before updating
+        self.previous_brick_high = self.last_brick_high
+        self.previous_brick_low = self.last_brick_low
+        
         if current_direction == 1:  # Up brick
             if self.last_brick_direction == 1:
                 self.consecutive_up_bricks += 1
@@ -147,40 +261,123 @@ class RTHEStrategy(TradingStrategy):
         self.last_brick_high = current_brick['high']
     
     def _check_core_entry(self, data: pd.DataFrame, index: int):
-        """Check for core trend entry"""
+        """Check for core trend entry with MA-based rules"""
         current_brick = data.iloc[index]
         current_price = current_brick['close']
         current_date = current_brick.get('date', index)
         
-        # Long entry: Up brick breaks previous resistance
+        # Long entry: Up brick with bullish MA crossover and trend alignment
         if (current_brick['direction'] == 1 and 
             self.consecutive_up_bricks >= self.min_bricks_for_trend and
             current_price >= self.last_brick_high):
-            self._enter_core_long(current_price, current_date)
+            
+            # Check MA conditions for long entry
+            ma_bullish = self.check_ma_bullish_crossover()
+            ma_aligned = self.check_ma_trend_alignment(1)
+            
+            if ma_bullish and ma_aligned:
+                self._enter_core_long(current_price, current_date)
         
-        # Short entry: Down brick breaks previous support
+        # Short entry: Down brick with bearish MA crossover and trend alignment
         elif (current_brick['direction'] == -1 and 
               self.consecutive_down_bricks >= self.min_bricks_for_trend and
               current_price <= self.last_brick_low):
-            self._enter_core_short(current_price, current_date)
+            
+            # Only allow short entries if counter-trend is enabled
+            if self.enable_counter_trend:
+                # Check MA conditions for short entry
+                ma_bearish = self.check_ma_bearish_crossover()
+                ma_aligned = self.check_ma_trend_alignment(-1)
+                
+                if ma_bearish and ma_aligned:
+                    self._enter_core_short(current_price, current_date)
     
     def _check_hedge_entry(self, data: pd.DataFrame, index: int):
-        """Check for hedge entry on reversal"""
+        """Check for hedge entry on reversal with multiple confirmation methods"""
         current_brick = data.iloc[index]
         current_price = current_brick['close']
         current_date = current_brick.get('date', index)
         
-        # Hedge against core long position
-        if (self.core_position == 1 and 
-            current_brick['direction'] == -1):
-            
-            self._enter_hedge_short(current_price, current_date)
+        # Check hedge conditions based on logic type
+        if self.core_position == 1:  # Long core position
+            if self._should_hedge_long_position(current_brick, current_price):
+                self._enter_hedge_short(current_price, current_date)
         
-        # Hedge against core short position
-        elif (self.core_position == -1 and 
-              current_brick['direction'] == 1):
-            
-            self._enter_hedge_long(current_price, current_date)
+        elif self.core_position == -1:  # Short core position
+            if self._should_hedge_short_position(current_brick, current_price):
+                self._enter_hedge_long(current_price, current_date)
+    
+    def _should_hedge_long_position(self, current_brick: pd.Series, current_price: float) -> bool:
+        """Check if we should hedge a long position based on selected logic"""
+        if current_brick['direction'] != -1:  # Must be down brick
+            return False
+        
+        # Logic 1: Single brick (original behavior)
+        if self.hedge_logic == "single_brick":
+            return True
+        
+        # Logic 2: Multiple bricks confirmation
+        if self.hedge_logic == "multiple_bricks":
+            if self.consecutive_down_bricks < self.hedge_brick_threshold:
+                return False
+        
+        # Logic 3: Price level confirmation
+        if self.hedge_price_confirmation:
+            # Price must break below previous brick low
+            if current_price >= self.previous_brick_low:
+                return False
+        
+        # Logic 4: Trend strength confirmation
+        if self.hedge_trend_strength:
+            # Down trend must be stronger than up trend
+            if self.consecutive_down_bricks <= self.consecutive_up_bricks:
+                return False
+        
+        # Combined logic: All enabled conditions must be met
+        if self.hedge_logic == "combined":
+            brick_ok = self.consecutive_down_bricks >= self.hedge_brick_threshold
+            price_ok = not self.hedge_price_confirmation or current_price < self.previous_brick_low
+            strength_ok = not self.hedge_trend_strength or self.consecutive_down_bricks > self.consecutive_up_bricks
+            return brick_ok and price_ok and strength_ok
+        
+        # For other logic types, just check the specific condition
+        return True
+    
+    def _should_hedge_short_position(self, current_brick: pd.Series, current_price: float) -> bool:
+        """Check if we should hedge a short position based on selected logic"""
+        if current_brick['direction'] != 1:  # Must be up brick
+            return False
+        
+        # Logic 1: Single brick (original behavior)
+        if self.hedge_logic == "single_brick":
+            return True
+        
+        # Logic 2: Multiple bricks confirmation
+        if self.hedge_logic == "multiple_bricks":
+            if self.consecutive_up_bricks < self.hedge_brick_threshold:
+                return False
+        
+        # Logic 3: Price level confirmation
+        if self.hedge_price_confirmation:
+            # Price must break above previous brick high
+            if current_price <= self.previous_brick_high:
+                return False
+        
+        # Logic 4: Trend strength confirmation
+        if self.hedge_trend_strength:
+            # Up trend must be stronger than down trend
+            if self.consecutive_up_bricks <= self.consecutive_down_bricks:
+                return False
+        
+        # Combined logic: All enabled conditions must be met
+        if self.hedge_logic == "combined":
+            brick_ok = self.consecutive_up_bricks >= self.hedge_brick_threshold
+            price_ok = not self.hedge_price_confirmation or current_price > self.previous_brick_high
+            strength_ok = not self.hedge_trend_strength or self.consecutive_up_bricks > self.consecutive_down_bricks
+            return brick_ok and price_ok and strength_ok
+        
+        # For other logic types, just check the specific condition
+        return True
     
     def _check_exits(self, data: pd.DataFrame, index: int):
         """Check for various exit conditions"""
