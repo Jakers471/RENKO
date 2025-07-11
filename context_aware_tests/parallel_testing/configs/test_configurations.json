@@ -1,0 +1,100 @@
+{
+  "configurations": {
+    "default": {
+      "name": "Default Optimization",
+      "description": "Standard parameter optimization with full parameter grid",
+      "atr_lookbacks": [5, 10, 14, 21],
+      "adx_lookbacks": [7, 14, 21],
+      "ma_lengths": [[10, 20, 50], [20, 50, 100], [20, 50, 200]],
+      "range_lookbacks": [10, 20, 30, 50],
+      "window_size": 2000,
+      "step_size": 500,
+      "use_renko": false,
+      "renko_atr_period": 14,
+      "renko_atr_multiplier": 1.0,
+      "estimated_combinations": 144,
+      "estimated_duration_minutes": 30
+    },
+    "renko_fine": {
+      "name": "Renko Fine Optimization",
+      "description": "Renko with fine-tuned parameters for detailed analysis",
+      "atr_lookbacks": [10, 14, 21],
+      "adx_lookbacks": [7, 14],
+      "ma_lengths": [[20, 50, 200]],
+      "range_lookbacks": [20, 30, 50],
+      "window_size": 1500,
+      "step_size": 500,
+      "use_renko": true,
+      "renko_atr_period": 14,
+      "renko_atr_multiplier": 1.0,
+      "estimated_combinations": 18,
+      "estimated_duration_minutes": 8
+    },
+    "renko_coarse": {
+      "name": "Renko Coarse Optimization",
+      "description": "Renko with coarse parameters for quick testing",
+      "atr_lookbacks": [14, 21],
+      "adx_lookbacks": [14],
+      "ma_lengths": [[20, 50, 200]],
+      "range_lookbacks": [30],
+      "window_size": 2000,
+      "step_size": 1000,
+      "use_renko": true,
+      "renko_atr_period": 21,
+      "renko_atr_multiplier": 1.5,
+      "estimated_combinations": 4,
+      "estimated_duration_minutes": 3
+    },
+    "quick_test": {
+      "name": "Quick Test",
+      "description": "Fast test with minimal combinations for validation",
+      "atr_lookbacks": [14],
+      "adx_lookbacks": [14],
+      "ma_lengths": [[20, 50, 200]],
+      "range_lookbacks": [30],
+      "window_size": 1000,
+      "step_size": 500,
+      "use_renko": false,
+      "renko_atr_period": 14,
+      "renko_atr_multiplier": 1.0,
+      "estimated_combinations": 1,
+      "estimated_duration_minutes": 1
+    },
+    "renko_ultra_fine": {
+      "name": "Renko Ultra Fine",
+      "description": "Ultra-fine Renko optimization with many parameter combinations",
+      "atr_lookbacks": [7, 10, 14, 21, 28],
+      "adx_lookbacks": [5, 7, 10, 14, 21],
+      "ma_lengths": [[10, 20, 50], [15, 30, 60], [20, 50, 100], [20, 50, 200]],
+      "range_lookbacks": [15, 20, 25, 30, 40, 50],
+      "window_size": 1200,
+      "step_size": 400,
+      "use_renko": true,
+      "renko_atr_period": 14,
+      "renko_atr_multiplier": 0.8,
+      "estimated_combinations": 600,
+      "estimated_duration_minutes": 120
+    },
+    "ohlc_comprehensive": {
+      "name": "OHLC Comprehensive",
+      "description": "Comprehensive OHLC optimization with extended parameter ranges",
+      "atr_lookbacks": [5, 7, 10, 14, 21, 28],
+      "adx_lookbacks": [7, 10, 14, 21],
+      "ma_lengths": [[10, 20, 50], [15, 30, 60], [20, 50, 100], [20, 50, 200], [30, 60, 120]],
+      "range_lookbacks": [10, 15, 20, 25, 30, 40, 50],
+      "window_size": 2500,
+      "step_size": 600,
+      "use_renko": false,
+      "renko_atr_period": 14,
+      "renko_atr_multiplier": 1.0,
+      "estimated_combinations": 840,
+      "estimated_duration_minutes": 180
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "description": "Test configurations for parallel optimization runs",
+    "last_updated": "2025-07-11",
+    "notes": "Modify these configurations to customize test parameters without changing code"
+  }
+} 

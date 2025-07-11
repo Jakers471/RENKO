@@ -1,0 +1,40 @@
+{
+  "total_chunks_tested": 1,
+  "score_statistics": {
+    "mean": 0.8788,
+    "std": 0.0,
+    "min": 0.8788,
+    "max": 0.8788,
+    "median": 0.8788
+  },
+  "trend_percentage_statistics": {
+    "mean": 65.14999999999999,
+    "std": 0.0,
+    "min": 65.14999999999999,
+    "max": 65.14999999999999
+  },
+  "consolidation_percentage_statistics": {
+    "mean": 34.849999999999994,
+    "std": 0.0,
+    "min": 34.849999999999994,
+    "max": 34.849999999999994
+  },
+  "most_common_parameter_set": [
+    "21_21_10_20_50_50",
+    1
+  ],
+  "parameter_frequency": {
+    "21_21_10_20_50_50": 1
+  },
+  "chunk_results": [
+    {
+      "chunk_id": 1,
+      "chunk_start": 0,
+      "chunk_end": 2000,
+      "best_score": 0.8788,
+      "trend_pct": 65.15,
+      "consolidation_pct": 34.85,
+      "parameters": "21_21_10_20_50_50"
+    }
+  ]
+} 
